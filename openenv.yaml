@@ -1,0 +1,19 @@
+name: medtriage_env
+version: 1.0.0
+description: "Emergency department triage environment where an AI agent acts as an ED nurse — assigning ESI priority levels, ordering diagnostic tests, managing bed allocation, consulting specialists, and handling patient deterioration across a simulated shift."
+author: Rohan
+type: api
+license: mit
+tasks:
+  - name: single_triage
+    difficulty: easy
+    max_steps: 5
+  - name: queue_ordering
+    difficulty: medium
+    max_steps: 15
+  - name: er_shift
+    difficulty: hard
+    max_steps: 40
+validation:
+  docker: true
+  baseline: true
