@@ -1,5 +1,13 @@
 """Deterministic graders for MedTriage-Env tasks."""
 
+# OpenEnv Phase 2 requires scores strictly in (0, 1).
+_SCORE_MIN = 0.01
+_SCORE_MAX = 0.99
+
+def _clamp(score: float) -> float:
+    """Clamp a score to the open interval (0, 1)."""
+    return max(_SCORE_MIN, min(_SCORE_MAX, score))
+
 
 def grade_single_triage(gold_esi: int, agent_esi: int) -> float:
     """
@@ -7,9 +15,10 @@ def grade_single_triage(gold_esi: int, agent_esi: int) -> float:
     Exact match = 1.0, off-by-1 = 0.6, off-by-2 = 0.2, else = 0.0.
     """
     if agent_esi is None:
-        return 0.0
+        return _clamp(0.0)
     diff = abs(gold_esi - agent_esi)
-    return {0: 1.0, 1: 0.6, 2: 0.2}.get(diff, 0.0)
+    raw = {0: 0.95, 1: 0.60, 2: 0.20}.get(diff, 0.01)
+    return _clamp(raw)
 
 
 def kendall_tau(x: list, y: list) -> float:
@@ -53,7 +62,7 @@ def grade_queue_ordering(
     """
     n = len(gold_order)
     if n == 0:
-        return 0.0
+        return _clamp(0.0)
 
     # --- Ordering component (Kendall's tau) ---
     if len(agent_order) < 2:
@@ -87,7 +96,8 @@ def grade_queue_ordering(
 
     # --- Combined ---
     score = 0.4 * tau_score + 0.4 * avg_esi + 0.2 * coverage
-    return round(min(max(score, 0.0), 1.0), 4)
+    # Cap at 0.95 before clamping so perfect agent never hits 1.0
+    return round(_clamp(min(score, 0.95)), 4)
 
 
 def grade_er_shift(
@@ -128,4 +138,4 @@ def grade_er_shift(
 
     raw = survival_rate * 0.5 + throughput * 0.3 + wait_score * 0.2
     final = raw * efficiency
-    return round(min(max(final, 0.0), 1.0), 4)
+    return round(_clamp(min(final, 0.95)), 4)

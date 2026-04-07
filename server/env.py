@@ -274,7 +274,7 @@ class MedTriageEnv:
                 }
                 return score
             self._grade_detail = {"error": "no_assignment"}
-            return 0.0
+            return 0.01
 
         elif self.task_name == "queue_ordering":
             score = grade_queue_ordering(
@@ -312,7 +312,7 @@ class MedTriageEnv:
                 total_wait, n_waited,
                 self.step_count, self.min_possible_steps,
             )
-        return 0.0
+        return 0.01
 
     # ── action handlers ──────────────────────────────────────────
     def _handle_assign_priority(self, action: TriageAction) -> Tuple[float, str]:
