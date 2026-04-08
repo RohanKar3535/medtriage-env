@@ -128,11 +128,14 @@ class MedTriageEnv:
 
     # ── task setup ───────────────────────────────────────────────
     def _setup_single_triage(self):
-        # Rotate ESI level by seed so different seeds test different acuities.
-        # seed 42 → ESI-3, seed 43 → ESI-4, seed 44 → ESI-5, seed 45 → ESI-1, ...
+        # Rotate ESI level by seed with offset so seed 42 avoids ESI-3
+        # (LLMs default-guess ESI-3, making it trivially correct without the offset).
+        # seed 42 → (42+3)%5=0 → ESI-1, seed 43 → ESI-2, seed 44 → ESI-3, ...
         esi_levels = [1, 2, 3, 4, 5]
-        target_esi = esi_levels[self.seed % len(esi_levels)]
+        target_esi = esi_levels[(self.seed + 3) % len(esi_levels)]
         candidates = [c for c in CASE_LIBRARY if c["gold_esi"] == target_esi]
+        if not candidates:
+            candidates = CASE_LIBRARY
         case = self.rng.choice(candidates)
         self._add_patient(case)
         self.min_possible_steps = 1

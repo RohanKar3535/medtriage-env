@@ -43,8 +43,8 @@ Emergency triage is one of the most consequential time-pressure decisions in med
 ### Task 1: `single_triage` (Easy)
 - **Objective**: Assign ESI priority level to a single patient
 - **Max Steps**: 5
-- **Grading**: Exact ESI match → 1.0 | Off-by-1 → 0.6 | Off-by-2 → 0.2 | Else → 0.0
-- **Expected Score**: ~0.80+ for frontier models
+- **Grading**: Exact ESI match → 0.95 | Off-by-1 → 0.60 | Off-by-2 → 0.20 | Else → 0.05
+- **Expected Score**: ~0.60 for frontier models (requires clinical reasoning, not default guessing)
 
 ### Task 2: `queue_ordering` (Medium)
 - **Objective**: Triage 5 patients in correct urgency order
@@ -184,9 +184,9 @@ curl http://localhost:7860/grade
 
 | Task | Score | Model |
 |---|---|---|
-| `single_triage` | ~0.80 | Qwen2.5-72B-Instruct |
-| `queue_ordering` | ~0.52 | Qwen2.5-72B-Instruct |
-| `er_shift` | ~0.35 | Qwen2.5-72B-Instruct |
+| `single_triage` | ~0.60 | Qwen2.5-72B-Instruct |
+| `queue_ordering` | ~0.55 | Qwen2.5-72B-Instruct |
+| `er_shift` | ~0.38 | Qwen2.5-72B-Instruct |
 
 ---
 
@@ -218,7 +218,7 @@ medtriage_env/
 - ✅ `state()` → returns current state
 - ✅ `openenv.yaml` with metadata
 - ✅ 3 tasks with deterministic graders (easy → medium → hard)
-- ✅ Scores in [0.0, 1.0] range
+- ✅ Scores in (0.01, 0.95] range — never boundary values
 - ✅ Working Dockerfile
 - ✅ Baseline inference script with reproducible scores
 - ✅ Uses OpenAI client for LLM calls
