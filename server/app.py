@@ -67,6 +67,15 @@ async def get_grade():
     return {"score": round(score, 4), "task": env.task_name, "detail": detail}
 
 
+@app.get("/metrics")
+def get_metrics():
+    return {
+        "tasks_completed": [env.step_count],
+        "average_score": env.grade(),
+        "grader_version": "1.0.0"
+    }
+
+
 @app.get("/tasks")
 async def get_tasks():
     return {
@@ -88,6 +97,12 @@ async def get_tasks():
                 "difficulty": "hard",
                 "description": "Manage a full 4-hour ER shift: triage, test, admit, consult, and discharge 10 patients under resource constraints.",
                 "max_steps": 40,
+            },
+            {
+                "name": "mass_casualty",
+                "difficulty": "hard",
+                "description": "15 patients arrive in waves, only 4 beds. Agent must triage and immediately discharge low-acuity patients to free beds for critical ones.",
+                "max_steps": 50,
             },
         ],
         "action_types": [

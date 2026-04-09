@@ -33,6 +33,7 @@ TASKS = [
     {"name": "single_triage", "max_steps": 5},
     {"name": "queue_ordering", "max_steps": 15},
     {"name": "er_shift",       "max_steps": 40},
+    {"name": "mass_casualty",  "max_steps": 50},
 ]
 
 SYSTEM_PROMPT = textwrap.dedent("""\
@@ -63,6 +64,10 @@ STRATEGY:
 - For Task 2: Triage all 5 patients, starting with the most critical.
 - For Task 3: Triage, order tests, admit critical patients, consult specialists, then discharge.
 - NEVER repeat the same action. Each action should make progress.
+- CRITICAL: assign_priority ALWAYS requires "esi_level" (1-5). Never send assign_priority without it.
+- If last_action_result says "already triaged", DO NOT retry that patient. Move to an UNASSIGNED patient.
+- Unassigned patients are those where "ESI assigned: none" in the patient list.
+- If you see "No beds available" in last_action_result, you MUST discharge an ESI-4 or ESI-5 patient immediately before attempting any more admissions.
 
 Respond with ONLY a single JSON object. No explanation, no markdown, no extra text.
 """).strip()
@@ -103,9 +108,11 @@ def build_user_prompt(obs: dict, step_num: int) -> str:
     patients_info = ""
     for p in obs.get("patients", []):
         v = p.get("vitals", {})
+        risk = p.get('deterioration_risk_minutes')
+        risk_str = f" | Risk In: {risk}m" if risk is not None else ""
         patients_info += (
             f"\n  [{p['patient_id']}] Status: {p['status']} | Age: {p['age']} | "
-            f"ESI assigned: {p.get('assigned_esi', 'none')}\n"
+            f"ESI assigned: {p.get('assigned_esi', 'none')}{risk_str}\n"
             f"    Complaint: {p['chief_complaint']}\n"
             f"    Vitals: HR={v.get('heart_rate')}, BP={v.get('bp_systolic')}/{v.get('bp_diastolic')}, "
             f"SpO2={v.get('spo2')}%, Temp={v.get('temperature')}°F, RR={v.get('respiratory_rate')}\n"

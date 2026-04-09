@@ -184,9 +184,12 @@ curl http://localhost:7860/grade
 
 | Task | Score | Model |
 |---|---|---|
-| `single_triage` | ~0.60 | Qwen2.5-72B-Instruct |
-| `queue_ordering` | ~0.55 | Qwen2.5-72B-Instruct |
-| `er_shift` | ~0.38 | Qwen2.5-72B-Instruct |
+| `single_triage` | 0.950 | llama-3.3-70b-versatile |
+| `queue_ordering` | 0.950 | llama-3.3-70b-versatile |
+| `er_shift` | 0.491 | llama-3.3-70b-versatile |
+| `mass_casualty` | 0.275 | llama-3.3-70b-versatile |
+
+*(Average Baseline: 0.666)*
 
 ---
 

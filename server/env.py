@@ -18,7 +18,7 @@ from .models import (
     TriageAction,
 )
 from .patient_data import CASE_LIBRARY, calculate_severity_score
-from .graders import grade_single_triage, grade_queue_ordering, grade_er_shift
+from .graders import grade_single_triage, grade_queue_ordering, grade_er_shift, grade_mass_casualty
 
 
 # ── Valid sets for input validation ──────────────────────────────
@@ -35,9 +35,10 @@ class MedTriageEnv:
         "single_triage":  {"max_steps": 5,  "num_patients": 1,  "beds": 6, "time_step": 5},
         "queue_ordering": {"max_steps": 15, "num_patients": 5,  "beds": 6, "time_step": 5},
         "er_shift":       {"max_steps": 40, "num_patients": 10, "beds": 6, "time_step": 10},
+        "mass_casualty":  {"max_steps": 50, "num_patients": 15, "beds": 4, "time_step": 5},
     }
 
-    DEFAULT_SEEDS = {"single_triage": 42, "queue_ordering": 123, "er_shift": 456}
+    DEFAULT_SEEDS = {"single_triage": 42, "queue_ordering": 123, "er_shift": 456, "mass_casualty": 789}
 
     def __init__(self):
         self._reset_state()
@@ -71,6 +72,7 @@ class MedTriageEnv:
         self.min_possible_steps: int = 1
         self._next_pid: int = 1
         self._next_bed: int = 1
+        self.loop_terminated: bool = False
 
     @property
     def config(self) -> dict:
@@ -167,6 +169,15 @@ class MedTriageEnv:
             self.pending_arrivals.append((t, c))
         self.min_possible_steps = 4 + len(delayed)
 
+    def _setup_mass_casualty(self):
+        wave1 = self._select_cases({1: 1, 2: 2, 3: 1, 5: 1})
+        for c in wave1: self._add_patient(c, arrival_time=0)
+        wave2 = self._select_cases({1: 2, 2: 1, 3: 1, 4: 1})
+        for c in wave2: self.pending_arrivals.append((10, c))
+        wave3 = self._select_cases({2: 2, 3: 2, 5: 1})
+        for c in wave3: self.pending_arrivals.append((20, c))
+        self.min_possible_steps = 25
+
     # ── public API ───────────────────────────────────────────────
     def reset(self, task_name: str = "single_triage", seed: Optional[int] = None) -> EnvironmentObservation:
         self._reset_state()
@@ -181,6 +192,8 @@ class MedTriageEnv:
             self._setup_queue_ordering()
         elif task_name == "er_shift":
             self._setup_er_shift()
+        elif task_name == "mass_casualty":
+            self._setup_mass_casualty()
         else:
             raise ValueError(f"Unknown task: {task_name}")
 
@@ -200,8 +213,10 @@ class MedTriageEnv:
         self.action_history.append(action_key)
         self.action_counter[action_key] = self.action_counter.get(action_key, 0) + 1
 
-        if self.action_counter[action_key] >= 3:
+        loop_limit = 5 if action.action_type == "wait" else 3
+        if self.action_counter[action_key] >= loop_limit:
             self.done = True
+            self.loop_terminated = True
             reward = -1.0
             self.last_action_result = (
                 "EPISODE TERMINATED: Same action repeated 3 times. "
@@ -235,8 +250,8 @@ class MedTriageEnv:
         self.cumulative_reward += reward
         self.rewards.append(reward)
 
-        # ── advance time (er_shift) ──────────────────────────────
-        if self.task_name == "er_shift":
+        # ── advance time (er_shift / mass_casualty) ──────────────────────────────
+        if self.task_name in ("er_shift", "mass_casualty"):
             self.current_time += self.config["time_step"]
             self._process_arrivals()
             self._process_deterioration()
@@ -264,6 +279,18 @@ class MedTriageEnv:
         }
 
     def grade(self) -> float:
+        base_score = self._compute_base_score()
+        if getattr(self, 'loop_terminated', False):
+            base_score = round(base_score * 0.5, 4)
+            detail = getattr(self, '_grade_detail', {})
+            if isinstance(detail, dict):
+                detail['loop_terminated'] = True
+                detail['pre_penalty_score'] = round(base_score / 0.5, 4)
+                detail['loop_penalty_applied'] = 0.5
+                self._grade_detail = detail
+        return base_score
+
+    def _compute_base_score(self) -> float:
         if self.task_name == "single_triage":
             pid = list(self.patients.keys())[0] if self.patients else None
             if pid and pid in self.esi_assignments:
@@ -277,7 +304,7 @@ class MedTriageEnv:
                 }
                 return score
             self._grade_detail = {"error": "no_assignment"}
-            return 0.01
+            return 0.0
 
         elif self.task_name == "queue_ordering":
             score = grade_queue_ordering(
@@ -293,7 +320,7 @@ class MedTriageEnv:
             }
             return score
 
-        elif self.task_name == "er_shift":
+        elif self.task_name in ("er_shift", "mass_casualty"):
             critical_pids = [
                 pid for pid, data in self.patients.items()
                 if data["case"]["gold_esi"] <= 2
@@ -309,13 +336,42 @@ class MedTriageEnv:
                     total_wait += wt - data["arrival_time"]
                     n_waited += 1
 
-            return grade_er_shift(
-                survived, len(critical_pids),
-                len(self.discharged), len(self.patients),
-                total_wait, n_waited,
-                self.step_count, self.min_possible_steps,
-            )
-        return 0.01
+            survival_rate = survived / len(critical_pids) if len(critical_pids) > 0 else 1.0
+            throughput = len(self.discharged) / len(self.patients) if len(self.patients) > 0 else 0.0
+            if n_waited > 0:
+                avg_wait = total_wait / n_waited
+                wait_score = max(0.0, 1.0 - (avg_wait / 120.0))
+            else:
+                wait_score = 1.0
+            efficiency_bonus = max(0.0, 1.0 - max(0, self.step_count - self.min_possible_steps) * 0.02) if self.min_possible_steps > 0 else 1.0
+
+            if self.task_name == "er_shift":
+                score = grade_er_shift(
+                    survived, len(critical_pids),
+                    len(self.discharged), len(self.patients),
+                    total_wait, n_waited,
+                    self.step_count, self.min_possible_steps,
+                )
+            else:
+                score = grade_mass_casualty(
+                    survived, len(critical_pids),
+                    len(self.discharged), len(self.patients),
+                    total_wait, n_waited,
+                    self.step_count, self.min_possible_steps,
+                )
+            self._grade_detail = {
+                "survival_rate": round(survival_rate, 4),
+                "throughput": round(throughput, 4),
+                "wait_score": round(wait_score, 4),
+                "efficiency_bonus": round(efficiency_bonus, 4),
+                "loop_terminated": False,
+                "loop_penalty_applied": 0.0,
+                "patients_triaged": len(self.triage_order),
+                "patients_discharged": len(self.discharged),
+                "patients_deteriorated": len(self.deteriorated),
+            }
+            return score
+        return 0.0
 
     # ── action handlers ──────────────────────────────────────────
     def _handle_assign_priority(self, action: TriageAction) -> Tuple[float, str]:
@@ -350,6 +406,8 @@ class MedTriageEnv:
             return -0.1, f"Patient {pid} does not exist."
         if not action.test_type:
             return -0.1, "test_type is required for order_test."
+        if pid not in self.esi_assignments:
+            return -0.1, f"Patient {pid} must be triaged before ordering tests."
         if action.test_type not in VALID_TESTS:
             return -0.1, f"Invalid test: {action.test_type}. Valid: {', '.join(sorted(VALID_TESTS))}"
 
@@ -373,7 +431,7 @@ class MedTriageEnv:
         if pid in self.admitted:
             return -0.2, f"Patient {pid} already admitted to bed {self.admitted[pid]}."
         if self.beds_free <= 0:
-            return -0.1, f"No beds available ({self.total_beds}/{self.total_beds} occupied)."
+            return -0.1, f"No beds available ({self.total_beds}/{self.total_beds} occupied). HINT: Discharge a low-acuity patient (ESI-4 or ESI-5) to free a bed before admitting critical patients."
         if pid not in self.esi_assignments:
             return -0.1, f"Patient {pid} must be triaged before admission."
 
@@ -438,7 +496,7 @@ class MedTriageEnv:
 
     def _handle_wait(self) -> Tuple[float, str]:
         # Waiting costs time; patients may deteriorate
-        if self.task_name == "er_shift":
+        if self.task_name in ("er_shift", "mass_casualty"):
             return -0.05, "Waited. Time advanced. Patients may be deteriorating."
         return 0.0, "Waited."
 
@@ -487,7 +545,7 @@ class MedTriageEnv:
             if len(self.triage_order) >= len(self.patients):
                 self.done = True
 
-        elif self.task_name == "er_shift":
+        elif self.task_name in ("er_shift", "mass_casualty"):
             if self.current_time >= 240:
                 self.done = True
             all_handled = all(
@@ -500,8 +558,19 @@ class MedTriageEnv:
     # ── observation building ─────────────────────────────────────
     def _get_observation(self) -> EnvironmentObservation:
         patient_obs = []
+        deterioration_alerts = []
+        unassigned_pids = []
         for pid, data in self.patients.items():
             v = data["vitals"]
+            risk_minutes = None
+            if pid not in self.deteriorated and pid not in self.discharged and data["status"] not in ("admitted",):
+                thresh = data["case"].get("deterioration_threshold")
+                if thresh is not None:
+                    wait_time = self.current_time - data["arrival_time"]
+                    risk_minutes = max(0, thresh - wait_time)
+                    if wait_time >= (thresh * 0.75) and pid not in self.esi_assignments:
+                        deterioration_alerts.append(pid)
+
             patient_obs.append(PatientObservation(
                 patient_id=pid,
                 chief_complaint=data["case"]["chief_complaint"],
@@ -515,7 +584,10 @@ class MedTriageEnv:
                 consults_requested=data["consults_requested"],
                 assigned_esi=data["assigned_esi"],
                 bed_id=data["bed_id"],
+                deterioration_risk_minutes=risk_minutes,
             ))
+            if data["assigned_esi"] is None:
+                unassigned_pids.append(pid)
 
         return EnvironmentObservation(
             current_time=self.current_time,
@@ -527,6 +599,8 @@ class MedTriageEnv:
             episode_step=self.step_count,
             task_name=self.task_name,
             done=self.done,
+            deterioration_alerts=deterioration_alerts,
+            unassigned_patients=unassigned_pids,
         )
 
 

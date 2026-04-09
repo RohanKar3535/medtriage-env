@@ -28,6 +28,7 @@ class PatientObservation(BaseModel):
     consults_requested: List[str] = []
     assigned_esi: Optional[int] = None
     bed_id: Optional[str] = None
+    deterioration_risk_minutes: Optional[int] = None
 
 
 class EnvironmentObservation(BaseModel):
@@ -41,6 +42,8 @@ class EnvironmentObservation(BaseModel):
     episode_step: int = 0
     task_name: str
     done: bool = False
+    deterioration_alerts: List[str] = Field(default_factory=list, description="List of patient IDs at risk of deterioration")
+    unassigned_patients: List[str] = Field(default_factory=list, description="List of patient IDs that have not been assigned an ESI level")
 
 
 class TriageAction(BaseModel):

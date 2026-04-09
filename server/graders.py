@@ -6,8 +6,8 @@ score_range validation. A perfect performance yields 0.95, not 1.0.
 
 
 def _clamp(score: float) -> float:
-    """Clamp to (0.01, 0.95] — never exactly 0 or 1."""
-    return round(min(max(score, 0.01), 0.95), 4)
+    """Clamp to [0.0, 0.95] — never exactly 1."""
+    return round(min(max(score, 0.0), 0.95), 4)
 
 
 def grade_single_triage(gold_esi: int, agent_esi: int) -> float:
@@ -16,7 +16,7 @@ def grade_single_triage(gold_esi: int, agent_esi: int) -> float:
     Exact match → 0.95, off-by-1 → 0.60, off-by-2 → 0.20, else → 0.05.
     """
     if agent_esi is None:
-        return 0.01
+        return 0.0
     diff = abs(gold_esi - agent_esi)
     raw = {0: 0.95, 1: 0.60, 2: 0.20}.get(diff, 0.05)
     return _clamp(raw)
@@ -63,7 +63,7 @@ def grade_queue_ordering(
     """
     n = len(gold_order)
     if n == 0:
-        return 0.01
+        return 0.0
 
     # --- Ordering component (Kendall's tau) ---
     if len(agent_order) < 2:
@@ -139,3 +139,26 @@ def grade_er_shift(
     raw = survival_rate * 0.5 + throughput * 0.3 + wait_score * 0.2
     final = raw * efficiency
     return _clamp(final)
+
+def grade_mass_casualty(
+    survival_count: int,
+    total_critical: int,
+    discharged_count: int,
+    total_patients: int,
+    total_wait_minutes: float,
+    num_waited: int,
+    steps_taken: int,
+    min_possible_steps: int,
+) -> float:
+    """
+    Grade Task 4: Mass Casualty Incident.
+    Composite: survival (60%) + throughput (20%) + efficiency under pressure (20%).
+    """
+    survival_rate = survival_count / total_critical if total_critical > 0 else 1.0
+    throughput = discharged_count / total_patients if total_patients > 0 else 0.0
+    wait_score = max(0.0, 1.0 - ((total_wait_minutes / num_waited) / 60.0)) if num_waited > 0 else 1.0
+    efficiency = max(0.0, 1.0 - max(0, steps_taken - min_possible_steps) * 0.02) if min_possible_steps > 0 else 1.0
+
+    raw = survival_rate * 0.6 + throughput * 0.2 + wait_score * 0.2
+    return _clamp(raw * efficiency)
+

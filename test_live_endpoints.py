@@ -41,28 +41,28 @@ print("=" * 60)
 obs = post("/reset", {"task_name": "single_triage", "seed": 42})
 pid = obs["patients"][0]["patient_id"]
 state = get("/state")
-# We need to figure out gold ESI — we don't know it, but seed=42 -> ESI-3
-# Just try the correct one
-result = post("/step", {"action_type": "assign_priority", "patient_id": pid, "esi_level": 3})
+# We need to figure out gold ESI — seed 42 -> ESI-1
+result = post("/step", {"action_type": "assign_priority", "patient_id": pid, "esi_level": 1})
 grade = get("/grade")
 correct_score = grade["score"]
-print(f"  Correct (ESI=3): score={correct_score}, detail={grade.get('detail', {})}")
+print(f"  Correct (ESI=1): score={correct_score}, detail={grade.get('detail', {})}")
 
 # Wrong agent (off by 2)
 obs = post("/reset", {"task_name": "single_triage", "seed": 42})
 pid = obs["patients"][0]["patient_id"]
-result = post("/step", {"action_type": "assign_priority", "patient_id": pid, "esi_level": 1})
+result = post("/step", {"action_type": "assign_priority", "patient_id": pid, "esi_level": 3})
 grade = get("/grade")
 wrong_score = grade["score"]
-print(f"  Wrong   (ESI=1): score={wrong_score}, detail={grade.get('detail', {})}")
+print(f"  Wrong   (ESI=3): score={wrong_score}, detail={grade.get('detail', {})}")
 
 # Really wrong agent (off by 3+)
-obs = post("/reset", {"task_name": "single_triage", "seed": 45})  # gold ESI=1
+obs = post("/reset", {"task_name": "single_triage", "seed": 45})  # (45+3)%5=3 -> ESI-4
 pid = obs["patients"][0]["patient_id"]
-result = post("/step", {"action_type": "assign_priority", "patient_id": pid, "esi_level": 5})
+result = post("/step", {"action_type": "assign_priority", "patient_id": pid, "esi_level": 1})
 grade = get("/grade")
 terrible_score = grade["score"]
-print(f"  Terrible(ESI=5, gold=1): score={terrible_score}, detail={grade.get('detail', {})}")
+print(f"  Terrible(ESI=1, gold=4): score={terrible_score}, detail={grade.get('detail', {})}")
+
 
 assert correct_score > wrong_score, f"Correct ({correct_score}) should beat wrong ({wrong_score})!"
 assert wrong_score > terrible_score or wrong_score == terrible_score, "Scores should decrease with error!"
